@@ -14,7 +14,10 @@ on:
 jobs:
   test:
     name: Test vcpkg action
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-13]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
