@@ -1,6 +1,6 @@
 name: 'vcpkg environment'
 description: 'Activate vcpkg environment'
-author: 'Jonatan Antoni <jonatan.antoni@arm.com'
+author: 'Jonatan Antoni <jonatan.antoni@arm.com>'
 
 inputs:
   config:
@@ -9,11 +9,10 @@ inputs:
     default: "./vcpkg-configuration.json"
   vcpkg-root:
     description: "Root folder for vcpkg"
-    default: "${{ github.workspace }}/.vcpkg"
+    default: $VCPKG_INSTALLATION_ROOT
     required: false
   cache:
     description: "Cache key suffix, set to empty to disable cache."
-    default: "-"
     required: false
   
 runs:
@@ -21,28 +20,33 @@ runs:
   steps:
     - name: Cache vcpkg
       uses: actions/cache@v4
-      if: ${{ inputs.cache }}
+      if: ${{ inputs.cache != '' }}
       with:
         key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}${{ inputs.cache }}
-        restore-keys: |
-          vcpkg-${{ runner.os }}-${{ runner.arch }}-
         path: ${{ inputs.vcpkg-root }}
 
-    - shell: bash
-      env: 
-        VCPKG_ROOT: ${{ inputs.vcpkg-root }}
+    - name: Check if cache restored
+      if: ${{ inputs.cache != '' }}
+      shell: bash
       run: |
-        echo "VCPKG_ROOT=${{ inputs.vcpkg-root }}" >> $GITHUB_ENV
-        if [ -f "$VCPKG_ROOT/vcpkg-init" ]; then
-          . "$VCPKG_ROOT/vcpkg-init"
+        VCPKG_ROOT_PATH=$(echo "${{ inputs.vcpkg-root }}" | sed 's|\\|/|g; s|^\([A-Za-z]\):|/\L\1|')
+        if [ -z "$(ls -A $VCPKG_ROOT_PATH)" ]; then
+          echo "No cache restored..."
+          echo "VCPKG_ROOT=$VCPKG_INSTALLATION_ROOT" >> $GITHUB_ENV
         else
-          . <(curl https://aka.ms/vcpkg-init.sh -L)
+          echo "Cache restored..."
+          echo "VCPKG_ROOT=$VCPKG_ROOT_PATH" >> $GITHUB_ENV
         fi
-        vcpkg x-update-registry --all
+
+    - name: Activate vcpkg
+      if: success()
+      shell: bash
+      run: |
+        vcpkg x-update-registry --all --vcpkg-root=$VCPKG_ROOT
         cd $(dirname "${{ inputs.config }}")
-        vcpkg activate --json=env.json
+        vcpkg activate --json=env.json --vcpkg-root=$VCPKG_ROOT
         echo "Preserving vcpkg PATH ..."
-        jq '.paths.PATH[]' env.json | tr -d '\"' | tee /dev/stderr >> $GITHUB_PATH
+        jq '.paths.PATH[]' env.json | tr -d '\"' 1>&2 >> $GITHUB_PATH
         echo "Preserving vcpkg ENV ..."
-        jq '.tools | to_entries | map("\(.key)=\(.value)")[]' env.json | tr -d '\"' | tee /dev/stderr >> $GITHUB_ENV
+        jq '.tools | to_entries | map("\(.key)=\(.value)")[]' env.json | tr -d '\"' 1>&2 >> $GITHUB_ENV
         rm env.json
